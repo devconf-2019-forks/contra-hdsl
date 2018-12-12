@@ -1,22 +1,26 @@
 import spock.lang.*
-
-import groovy.json.JsonBuilder
+import com.homeaway.devtools.jenkins.testing.JenkinsPipelineSpecification
 
 import org.centos.contra.Infra.Utils
-//import org.centos.contra.Infra.Providers.Aws
-//import org.centos.contra.Infra.Providers.Openstack
-//import org.centos.contra.Infra.Providers.Beaker
 
 import org.yaml.snakeyaml.Yaml
 
-public class UtilsSpec extends Specification {
+public class UtilsSpec extends JenkinsPipelineSpecification {
     @Shared
     def config = new HashMap<String,?>()
+
     @Shared
-    def infraUtils = new Utils()
+    def infraUtils
+    def setup() {
+        infraUtils = loadPipelineScriptForTest( "../../src/org/centos/contra/Infra/Utils.groovy" )
+        infraUtils.getBinding().setVariable("env", ["foo": "bar"])
+        explicitlyMockPipelineStep('dir')
+        explicitlyMockPipelineStep('libraryResource')
+        explicitlyMockPipelineStep('fileExists')
+        explicitlyMockPipelineStep('writeFile')
+    }
     
     def setupSpec() {
-        infraUtils = new Utils()
         Yaml yaml = new Yaml()
         config = (Map<String, ?>)yaml.load(new FileReader('test/contra-sample.yml'))
     }
@@ -29,7 +33,6 @@ public class UtilsSpec extends Specification {
 
         then:
         instances != null
-        def string = "hello"
         // createAwsInstances modifies state so we need to modify it back
         def base_name = aws.instances[0].name
         if (aws.instances[0].count) {
@@ -45,10 +48,15 @@ public class UtilsSpec extends Specification {
         instances.every{ instance -> instance.getKeyPair() == aws.instances[0].key_pair}
         instances.every{ instance -> instance.getUser() == aws.instances[0].user}
         instances.every{ instance -> instance.getAssignPublicIP() == aws.instances[0].assign_public_ip}
-        // check instances for correctness
     }
 
-    def "creating aws instances fails gracefully when data is missing" () {
+    def "creating aws instances drops to defaults when data is missing" () {
+        def aws = [instances: [[:]]]
+        when:
+        def instances = infraUtils.createAwsInstances(aws as HashMap)
+
+        then:
+        instances != null
     }
 
     def "create beaker instances" () {
@@ -58,11 +66,17 @@ public class UtilsSpec extends Specification {
 
         then:
         instances != null
-        // check instances for correctness
+        // TODO: check instances for correctness
         instances.every { instance -> instances != null }
     }
 
-    def "creating beaker instances fails gracefully" () {
+    def "creating beaker instances drops to defaults when data is missing" () {
+        def beaker = [instances: [[:]]]
+        when:
+        def instances = infraUtils.createBeakerInstances(beaker as HashMap)
+
+        then:
+        instances != null
     }
 
     def "create openstack instances" () {
@@ -84,17 +98,21 @@ public class UtilsSpec extends Specification {
         instances.every { instance -> instance.getUser() == openstack.instances[i++].user }
     }
 
-    def "creating openstack instances fails gracefully" () {
+    def "creating openstack instances drops to defaults when data is missing" () {
+        def openstack = [instances: [[:]]]
+        when:
+        def instances = infraUtils.createOpenstackInstances(openstack as HashMap)
+
+        then:
+        instances != null
     }
 
     def "able to execute linchpin" () {
-        when:
-        1 + 1
-        //infraUtils.executeInLinchpin("validate", "", true, "")
-
-        then:
-        null == null
-        //noExceptionThrown()
+//        when:
+//        infraUtils.executeInLinchpin("validate", "", true, "abc")
+//
+//        then:
+//        noExceptionThrown()
     }
 
     def "handles failures in linchpin" () {
@@ -104,24 +122,20 @@ public class UtilsSpec extends Specification {
     }
 
     def "successfully create a topology string for each provider type" () {
-        // fill in relevant data here
-        /*
-        expect:
-        infraUtils.createTopology(providerInstance, 0) != null
-
-        where:
-        aws << infraUtils.createAwsInstances(config.infra.provision.cloud.aws as HashMap)
-        //def beaker = infraUtils.createBeakerInstance(config.infra.provision.cloud.beaker as HashMap)
-        openstack << infraUtils.createOpenstackInstances(config.infra.provision.cloud.openstack as HashMap)
-        providerInstance << [aws, openstack]
-        // AWS, Beaker, and OpenStack
-        */
         when:
-        def aws = infraUtils.createAwsInstances(config.infra.provision.cloud.aws as HashMap)
-        print aws[0].getClass()
+        println("${instance.dump()}")
+        print(config.infra.provision.cloud.beaker)
+        infraUtils.generateTopology(instance, 1, "somedir")
 
         then:
-        infraUtils.createTopology(aws[0], 0) != null
+        noExceptionThrown()
+
+        where:
+        instance << [
+                infraUtils.createAwsInstances(config.infra.provision.cloud.aws as HashMap)[0],
+                infraUtils.createBeakerInstances(config.infra.provision.cloud.beaker as HashMap)[0],
+//                infraUtils.createOpenstackInstances(config.infra.provision.cloud.openstack as HashMap)[0]
+        ]
     }
 
     def "correct topologies can be generated" () {
